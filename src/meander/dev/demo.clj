@@ -832,3 +832,154 @@
    (fn [x]
      (and (symbol? x)
           (re-find re (str x))))))
+
+
+(import '[java.util.regex Pattern])
+
+(defn clj-sr-apply [file results]
+  (let [buffer (slurp file)]
+    (reduce
+     (fn [buffer result]
+       (let [replacement-string (clojure.string/trim
+                                 (with-out-str (clojure.pprint/pprint (:replacement result))))
+             pattern (re-pattern (Pattern/quote (:source result)))
+             matcher (re-matcher pattern buffer)]
+         (.replaceFirst matcher replacement-string)))
+     buffer
+     (sort-by :line results))))
+
+
+
+(defmacro clj-search-and-replace [file match replacement]
+  `(clj-sr-apply (jio/file ~file)
+                 (sequence
+                  (comp (filter (comp #{:match/pattern} :tag))
+                        (map
+                         (r/rewritet
+                          {:line ~'?line
+                           :source ~'?source
+                           :tag :match/pattern
+                           :match ~match}
+                          ;; =>
+                          {:line ~'?line
+                           :source ~'?source
+                           :replacement ~replacement})))
+                  (cljq-dir '~match (jio/file ~file)))))
+
+
+#_
+(let [file (jio/file "/Users/noprompt/git/healthfinch/hf-crede-rules-clj/src/crede/message/pre_visit_message.clj")]
+  (spit file
+        (clj-search-and-replace
+         file
+         (ruby/call-ruby
+          (hf.document/make-handler
+           {:format "ascii_columns"
+            :options ?options})
+          :call
+          (zweikopf.core/rubyize ?context))
+         ((hf.document/make-handler
+           {:format :ascii-row
+            :row ?options})
+          ?context))))
+
+
+
+;; Body
+;;
+;; And: b₁, b₂
+;; Choose: b₁;b₂
+;; Unify: x₁ = x₂
+;; Call: call(t)
+;;   foo(X), bar(Y).
+;;   =>
+;;   call(foo(X)), call(bar(Y)).
+;; Bind: x ← t
+;;   foo(X, Y) = foo(bar, baz).
+;;   =>
+;;   T1 ← foo(X, Y),
+;;   T2 ← bar(),
+;;   T3 ← baz(),
+;;   T4 ← foo(T2, T3),
+;;   T1 = T4.
+;; Is: x is e
+;;   X = 1.
+;;   =>
+;;   T1 is 1,
+;;   X = T1,
+;; RelationalBody: x₁ ⊛ x₂
+;;   X > 7.
+;;   T1 is 7,
+;;   X > T1.
+;; True: true
+;; Fail: fail
+;; ArithExp
+;; ArithOp
+;; RelationalOp
+;;
+;; n ∈ ℕ
+;; db ∈ ClauseDb = (Name × ℕ) ↦ Clause
+;; ρ ∈ Env = Variable ↦ Placeholder
+;; κ ∈ Kont = andK(Body) + restoreK(Env)
+;; v ∈ Value = IntValue + TermValue + Placeholder
+;; iv ∈ IntValue = intValue(ℤ)
+;; tv ∈ TermValue = termValue(Name, Value→)
+;; pl ∈ Placeholder = placeholder(ℕ)
+;; eq ∈ EquivClasses = Placeholder ↦ Value
+;; ch ∈ Choice = Body × Env × EquivClasses × Kont→
+;; ς ∈ State =  Body × Env × EquivClasses × Kont→ × Choice→
+
+
+(defn mpl-lookup [v eq]
+  (if-some [[_ pl] (find eq v)]
+    (mpl-lookup pl eq)
+    v))
+
+
+(defn mpl-add-relation [pl v eq]
+  (let [v* (mpl-lookup v eq)]
+    (if (= pl v*)
+      eq
+      (assoc eq pl v*))))
+
+
+(declare mpl-unify-vals)
+
+
+(defn mpl-unify-multi-vals [pairs eq]
+  (r.match/match pairs
+    [[?v1 ?v2] . !pairs ...]
+    (if (some? (mpl-unify-vals ?v1 ?v2 eq))
+      (mpl-unify-multi-vals !pairs eq))
+
+    _
+    eq))
+
+
+#_
+(mpl-unify-vals '(termValue foo [(placeholder 1)])
+                '(termValue foo [(placeholder 2)])
+                {})
+
+(defn mpl-unify-vals [v1 v2 eq]
+  (let [v3 (mpl-lookup v1 eq)
+        v4 (mpl-lookup v2 eq)]
+    (r.match/match [v3 v4]
+      [(placeholder _) _]
+      (mpl-add-relation v3 v4 eq)
+
+      [(not (placeholder _)) (placeholder _)]
+      (mpl-add-relation v4 v3 eq)
+
+      [(intValue ?i) (intValue ?i)]
+      eq
+
+      (and [(termValue ?name [!vs5 ...]) (termValue ?name [!vs6 ...])]
+           (? (fn [_]
+                (= (count !vs5)
+                   (count !vs6)))))
+      (mpl-unify-multi-vals (map vector !vs5 !vs6) eq)
+
+      _
+      nil)))
+
