@@ -161,9 +161,9 @@
         (cons `list l)
         ()))
 
-    :set)
-  (let [[_ set] node]
-    (into #{} (map compile-ground set))))
+    :set
+    (let [[_ set] node]
+      (into #{} (map compile-ground set)))))
 
 
 (defn specialize-matrix
