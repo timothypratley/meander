@@ -143,6 +143,10 @@
               (when (some? r)
                 (compile-ground r))))
 
+    :quo
+    (let [[_ {form :form}] node]
+      (list 'quote form))
+
     :vec
     (let [[_ prt] node]
       (into [] (compile-ground prt)))
