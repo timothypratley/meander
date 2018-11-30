@@ -147,6 +147,10 @@
     (let [[_ {form :form}] node]
       (list 'quote form))
 
+    :unq
+    (let [[_ {expr :expr}] node]
+      expr)
+
     :vec
     (let [[_ prt] node]
       (into [] (compile-ground prt)))
@@ -157,9 +161,9 @@
         (cons `list l)
         ()))
 
-    :set
-    (let [[_ set] node]
-      (into #{} (map compile-ground set)))))
+    :set)
+  (let [[_ set] node]
+    (into #{} (map compile-ground set))))
 
 
 (defn specialize-matrix
